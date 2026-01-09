@@ -1,0 +1,10 @@
+# Multi-Agent System Requirements
+# OPTIONAL: Only needed for real LLM API support (Groq)
+# System works perfectly without these (uses offline simulation)
+
+# For real LLM API support (OPTIONAL):
+groq>=0.4.1
+
+# For enhanced console output (OPTIONAL):
+colorama>=0.4.6
+
