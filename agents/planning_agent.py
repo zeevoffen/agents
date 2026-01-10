@@ -1,17 +1,41 @@
 """
 Planning Agent - Creates actionable plans and strategies
+Uses Groq API for real LLM inference, falls back to simulation
 """
 from typing import Any, Dict, List
 from agents.base import BaseAgent, AgentRole
+import os
+import json
 
 
 class PlanningAgent(BaseAgent):
     """Agent specialized in planning and strategy development"""
     
-    def __init__(self, name: str = "Planning Agent"):
+    def __init__(self, name: str = "Planning Agent", use_api: bool = True):
         expertise = ["strategic planning", "roadmap development", "risk management",
                     "resource allocation", "timeline estimation", "milestone definition"]
         super().__init__(name, AgentRole.PLANNING, expertise)
+        
+        self.use_api = use_api
+        self.api_key = os.getenv("GROQ_API_KEY")
+        
+        # Try to use API, fallback to simulation if not available
+        if use_api and not self.api_key:
+            print(f"⚠️  No GROQ_API_KEY found. Set it to use real LLM: export GROQ_API_KEY='your-key'")
+            self.use_api = False
+        
+        if self.use_api:
+            try:
+                from groq import Groq
+                self.client = Groq(api_key=self.api_key)
+                print(f"✓ {self.name} using real Groq LLM API")
+            except ImportError:
+                print(f"⚠️  groq package not installed. Install: pip install groq")
+                self.use_api = False
+                self.client = None
+        else:
+            print(f"ℹ️  {self.name} using simulation mode (offline)")
+            self.client = None
         
         self.knowledge_base = {
             "planning_methodologies": ["Agile", "Waterfall", "Lean", "Kanban"],
@@ -28,8 +52,12 @@ class PlanningAgent(BaseAgent):
         resources = task.get("available_resources", [])
         insights = task.get("insights", [])
         
-        # Create strategic plan
-        strategic_plan = self._create_strategic_plan(objective, insights)
+        # Create strategic plan - either from API or simulation
+        if self.use_api and self.client:
+            strategic_plan = self._create_plan_with_api(objective, constraints, insights)
+        else:
+            strategic_plan = self._create_strategic_plan(objective, insights)
+        
         roadmap = self._create_roadmap(objective, constraints)
         risk_mitigation = self._identify_risks_and_mitigation(objective)
         resource_plan = self._allocate_resources(resources, roadmap)
@@ -43,7 +71,8 @@ class PlanningAgent(BaseAgent):
             "risk_mitigation": risk_mitigation,
             "resource_allocation": resource_plan,
             "confidence": 0.80,
-            "timeline": self._estimate_timeline(roadmap)
+            "timeline": self._estimate_timeline(roadmap),
+            "mode": "real_api" if (self.use_api and self.client) else "simulation"
         }
         
         self.add_to_history(task, result)
@@ -69,6 +98,53 @@ class PlanningAgent(BaseAgent):
             ]
         }
         return plan
+    
+    def _create_plan_with_api(self, objective: str, constraints: Dict, 
+                             insights: List[Dict]) -> Dict[str, Any]:
+        """Use real Groq LLM for plan creation"""
+        try:
+            prompt = f"""You are a strategic planning expert. Create a detailed strategic plan for:
+Objective: {objective}
+Constraints: {json.dumps(constraints, default=str)}
+Key Insights: {json.dumps(insights, default=str)}
+
+Return ONLY a JSON object with this format:
+{{
+  "vision": "clear vision statement",
+  "strategy": "high-level strategy",
+  "success_criteria": ["criterion1", "criterion2", ...],
+  "key_success_factors": ["factor1", "factor2", ...],
+  "critical_risks": ["risk1", "risk2", ...],
+  "implementation_approach": "how to implement"
+}}
+
+Be concise and strategic."""
+
+            response = self.client.chat.completions.create(
+                model="mixtral-8x7b-32768",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+                max_tokens=800
+            )
+            
+            response_text = response.choices[0].message.content.strip()
+            
+            # Parse JSON response
+            try:
+                if "```json" in response_text:
+                    response_text = response_text.split("```json")[1].split("```")[0].strip()
+                elif "```" in response_text:
+                    response_text = response_text.split("```")[1].split("```")[0].strip()
+                
+                plan = json.loads(response_text)
+                return plan
+            except json.JSONDecodeError:
+                return {"vision": response_text, "strategy": "LLM-generated strategy"}
+            
+        except Exception as e:
+            print(f"⚠️  API Error: {e}. Falling back to simulation.")
+            self.use_api = False
+            return self._create_strategic_plan(objective, insights)
     
     def _create_roadmap(self, objective: str, constraints: Dict) -> List[Dict[str, Any]]:
         """Create detailed roadmap with phases"""
