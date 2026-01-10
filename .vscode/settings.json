@@ -1,0 +1,15 @@
+{
+  "[dev]": {
+    "extensions.ignoreRecommendations": false
+  },
+  "extensions.recommendations": [],
+  "extensions.ignoreUntrustedWorkspaceRecommendations": false,
+  "microsoft.playwright-mcp": {
+    "enable": true
+  },
+  "[remote]": {
+    "microsoft.playwright-mcp": {
+      "enable": true
+    }
+  }
+}
